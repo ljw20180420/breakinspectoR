@@ -95,13 +95,19 @@ breakinspectoR <- function(
   # read the bed files
   msg(verbose, "Importing breaks...", appendLF = FALSE)
 
-  breaks <- mclapply(
-    list(target = target, nontarget = nontarget),
-    read_targets,
+  breaks <- list()
+  breaks$target <- read_targets(
+    target,
     genome,
     standard_chromosomes,
-    strandless = TRUE,
-    mc.cores = cores
+    strandless = TRUE
+  )
+
+  breaks$nontarget <- read_targets(
+    nontarget,
+    genome,
+    standard_chromosomes,
+    strandless = TRUE
   )
 
   msg(verbose, " done", appendLF = TRUE)
@@ -526,7 +532,7 @@ read_targets <- function(x, genome, standard_chromosomes, strandless) {
   }
 
   # collapse reads from multiple strands
-  if (strandless & !all(strand(x) == "*")) {
+  if (strandless && !all(strand(x) == "*")) {
     xx <- GenomicRanges::reduce(
       BiocGenerics::unstrand(x),
       with.revmap = TRUE,
