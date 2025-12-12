@@ -23,7 +23,8 @@ Imports: BSgenome,
          qvalue,
          parallel,
          ggridges,
-         ggseqlogo
+         ggseqlogo,
+         BSgenome.Hsapiens.UCSC.hg38
 Suggests: BiocStyle,
           knitr,
           rmarkdown,

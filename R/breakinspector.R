@@ -94,14 +94,22 @@ breakinspectoR <- function(
 
   # read the bed files
   msg(verbose, "Importing breaks...", appendLF = FALSE)
-  breaks <- mclapply(
-    list(target = target, nontarget = nontarget),
-    read_targets,
-    genome,
-    standard_chromosomes,
-    strandless = TRUE,
-    mc.cores = cores
+
+  breaks <- list(
+    target = read_targets(
+      target,
+      genome,
+      standard_chromosomes,
+      strandless = TRUE
+    ),
+    nontarget = read_targets(
+      nontarget,
+      genome,
+      standard_chromosomes,
+      strandless = TRUE
+    )
   )
+
   msg(verbose, " done", appendLF = TRUE)
 
   # scale the non-target library, if requested
