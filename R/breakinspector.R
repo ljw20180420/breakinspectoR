@@ -54,48 +54,68 @@
 #'     cutsiteFromPAM=3)
 #' }
 #'
-breakinspectoR <- function(target, nontarget=GRanges(), guide, PAM=c("NAG", "NGG"),
-                           mismatches=7, cutsiteFromPAM=3, min_breaks=2,
-                           standard_chromosomes=TRUE,
-                           bsgenome="BSgenome.Hsapiens.UCSC.hg38",
-                           eFDR=TRUE,
-                           scale_nontarget=FALSE,
-                           seed=666,
-                           cores=getOption("mc.cores", 2L),
-                           verbose=TRUE) {
-
+breakinspectoR <- function(
+  target,
+  nontarget = GRanges(),
+  guide,
+  PAM = c("NAG", "NGG"),
+  mismatches = 7,
+  cutsiteFromPAM = 3,
+  min_breaks = 2,
+  standard_chromosomes = TRUE,
+  bsgenome = "BSgenome.Hsapiens.UCSC.hg38",
+  eFDR = TRUE,
+  scale_nontarget = FALSE,
+  seed = 666,
+  cores = getOption("mc.cores", 2L),
+  verbose = TRUE
+) {
   # set seed for random number generation
-  if(!is.na(seed)) {
-    msg(verbose, "Setting seed for random number generation...", appendLF=FALSE)
+  if (!is.na(seed)) {
+    msg(
+      verbose,
+      "Setting seed for random number generation...",
+      appendLF = FALSE
+    )
     set.seed(seed)
-    msg(verbose, " done", appendLF=TRUE)
+    msg(verbose, " done", appendLF = TRUE)
   }
 
   # load the reference genome. Will be used almost everywhere...
-  msg(verbose, "Loading ", bsgenome, "...", appendLF=FALSE)
-  if(!is(bsgenome, "BSgenome")) {
-    if (requireNamespace(bsgenome, quietly=TRUE)) {
-      genome <- eval(parse(text=paste0(bsgenome, "::", bsgenome)))
+  msg(verbose, "Loading ", bsgenome, "...", appendLF = FALSE)
+  if (!is(bsgenome, "BSgenome")) {
+    if (requireNamespace(bsgenome, quietly = TRUE)) {
+      genome <- eval(parse(text = paste0(bsgenome, "::", bsgenome)))
     }
   } else {
     genome <- bsgenome
   }
-  msg(verbose, " done", appendLF=TRUE)
+  msg(verbose, " done", appendLF = TRUE)
 
   # read the bed files
-  msg(verbose, "Importing breaks...", appendLF=FALSE)
-  breaks <- mclapply(list(target=target, nontarget=nontarget), read_targets,
-                     genome, standard_chromosomes, strandless=TRUE, mc.cores=cores)
-  msg(verbose, " done", appendLF=TRUE)
+  msg(verbose, "Importing breaks...", appendLF = FALSE)
+  breaks <- mclapply(
+    list(target = target, nontarget = nontarget),
+    read_targets,
+    genome,
+    standard_chromosomes,
+    strandless = TRUE,
+    mc.cores = cores
+  )
+  msg(verbose, " done", appendLF = TRUE)
 
   # scale the non-target library, if requested
   # how: draw 10 vectors of multinomially distributed random breaks in target
   #      with probability equal to the non-target breaks, and average them
-  if(scale_nontarget) {
-    msg(verbose, "Scaling non-target library...", appendLF=FALSE)
-    breaks$nontarget$score <- rmultinom(1, sum(breaks$target$score), breaks$nontarget$score)
+  if (scale_nontarget) {
+    msg(verbose, "Scaling non-target library...", appendLF = FALSE)
+    breaks$nontarget$score <- rmultinom(
+      1,
+      sum(breaks$target$score),
+      breaks$nontarget$score
+    )
     breaks$nontarget <- breaks$nontarget[breaks$nontarget$score > 0]
-    msg(verbose, " done", appendLF=TRUE)
+    msg(verbose, " done", appendLF = TRUE)
   }
 
   # identify all loci in "target" that have at least `min_breaks` breaks
@@ -104,86 +124,146 @@ breakinspectoR <- function(target, nontarget=GRanges(), guide, PAM=c("NAG", "NGG
   offtarget_candidates <- unique(offtarget_candidates)
 
   # add the sequence context around the candidate loci, and the PAM
-  msg(verbose, "Obtaining sequence context...", appendLF=FALSE)
-  s <- get_guide_and_pam(offtarget_candidates,
-                         cutsiteFromPAM=cutsiteFromPAM,
-                         glen=nchar(guide),
-                         pamlen=max(nchar(PAM)),
-                         genome=genome)
-  msg(verbose, " done", appendLF=TRUE)
+  msg(verbose, "Obtaining sequence context...", appendLF = FALSE)
+  s <- get_guide_and_pam(
+    offtarget_candidates,
+    cutsiteFromPAM = cutsiteFromPAM,
+    glen = nchar(guide),
+    pamlen = max(nchar(PAM)),
+    genome = genome
+  )
+  msg(verbose, " done", appendLF = TRUE)
 
   # keep only offtarget candidates with PAM and few mismatches to the guide
-  msg(verbose, "Filtering out candidates without PAM or too many mismatches...", appendLF=FALSE)
-  guide_sense <- vcountPattern(guide, s$sense_guide, max.mismatch=mismatches, fixed=FALSE) > 0
-  guide_as    <- vcountPattern(guide, s$as_guide   , max.mismatch=mismatches, fixed=FALSE) > 0
-  pam_sense   <- rowSums(sapply(PAM, function(pam) vcountPattern(pam, s$sense_pam, fixed=FALSE))) > 0
-  pam_as      <- rowSums(sapply(PAM, function(pam) vcountPattern(pam, s$as_pam   , fixed=FALSE))) > 0
+  msg(
+    verbose,
+    "Filtering out candidates without PAM or too many mismatches...",
+    appendLF = FALSE
+  )
+  guide_sense <- vcountPattern(
+    guide,
+    s$sense_guide,
+    max.mismatch = mismatches,
+    fixed = FALSE
+  ) >
+    0
+  guide_as <- vcountPattern(
+    guide,
+    s$as_guide,
+    max.mismatch = mismatches,
+    fixed = FALSE
+  ) >
+    0
+  pam_sense <- rowSums(sapply(PAM, function(pam) {
+    vcountPattern(pam, s$sense_pam, fixed = FALSE)
+  })) >
+    0
+  pam_as <- rowSums(sapply(PAM, function(pam) {
+    vcountPattern(pam, s$as_pam, fixed = FALSE)
+  })) >
+    0
   match_sense <- guide_sense & pam_sense
-  match_as    <- guide_as    & pam_as
+  match_as <- guide_as & pam_as
 
   offtarget_candidates$cutsite <- ranges(offtarget_candidates)
-  offtarget_candidates$sense   <- ifelse(match_sense, "sense",       ifelse(match_as, "antisense", ""))
-  offtarget_candidates$guide   <- ifelse(match_sense, s$sense_guide, ifelse(match_as, s$as_guide, ""))
-  offtarget_candidates$pam     <- ifelse(match_sense, s$sense_pam,   ifelse(match_as, s$as_pam, ""))
-  ranges(offtarget_candidates)[match_as]    <- s$as_loci[match_as]
+  offtarget_candidates$sense <- ifelse(
+    match_sense,
+    "sense",
+    ifelse(match_as, "antisense", "")
+  )
+  offtarget_candidates$guide <- ifelse(
+    match_sense,
+    s$sense_guide,
+    ifelse(match_as, s$as_guide, "")
+  )
+  offtarget_candidates$pam <- ifelse(
+    match_sense,
+    s$sense_pam,
+    ifelse(match_as, s$as_pam, "")
+  )
+  ranges(offtarget_candidates)[match_as] <- s$as_loci[match_as]
   ranges(offtarget_candidates)[match_sense] <- s$sense_loci[match_sense]
 
   # add mismatches to the guide (take the "max" as it corresponds to the longest match)
-  offtarget_candidates$mismatches <- neditAt(DNAString(guide),
-                                             DNAStringSet(offtarget_candidates$guide),
-                                             fixed=FALSE)
+  offtarget_candidates$mismatches <- neditAt(
+    DNAString(guide),
+    DNAStringSet(offtarget_candidates$guide),
+    fixed = FALSE
+  )
 
   # this is the final set of offtargets that have the guide+PAM with up to `mismatches`
-  offtargets <- offtarget_candidates[(match_sense | match_as) & offtarget_candidates$mismatches <= mismatches]
-  msg(verbose, " done", appendLF=TRUE)
+  offtargets <- offtarget_candidates[
+    (match_sense | match_as) & offtarget_candidates$mismatches <= mismatches
+  ]
+  msg(verbose, " done", appendLF = TRUE)
 
   # at this point, return if no on/off targets were detected
-  if(length(offtargets) == 0) {
-    msg(verbose, "No targets detected", appendLF=FALSE)
+  if (length(offtargets) == 0) {
+    msg(verbose, "No targets detected", appendLF = FALSE)
     return(offtargets)
   }
-  
+
   # get the number of breaks per position for those regions
-  msg(verbose, "Counting breaks at each offtarget region...", appendLF=FALSE)
-  x <- do.call(cbind, lapply(breaks, function(x) {
+  msg(verbose, "Counting breaks at each offtarget region...", appendLF = FALSE)
+  x <- do.call(
+    cbind,
+    lapply(breaks, function(x) {
+      breaks <- t(sapply(coverage(x, weight = x$score)[offtargets], decode))
+      i <- offtargets$sense == "antisense"
+      if (any(i)) {
+        breaks[i, ] <- sapply(breaks[i, ], rev)
+      }
 
-    breaks <- t(sapply(coverage(x, weight=x$score)[offtargets], decode))
-    i <- offtargets$sense == "antisense"
-    if(any(i)) {
-      breaks[i, ] <- sapply(breaks[i, ], rev)
-    }
+      cutsite <- GRanges(seqnames(offtargets), IRanges(offtargets$cutsite))
+      cutsite_breaks <- sapply(coverage(x, weight = x$score)[cutsite], decode)
 
-    cutsite <- GRanges(seqnames(offtargets), IRanges(offtargets$cutsite))
-    cutsite_breaks <- sapply(coverage(x, weight=x$score)[cutsite], decode)
-
-    data.frame(breaks =rowSums(breaks),
-               cutsite_breaks=cutsite_breaks)
-  }))
+      data.frame(breaks = rowSums(breaks), cutsite_breaks = cutsite_breaks)
+    })
+  )
 
   mcols(offtargets) <- cbind(mcols(offtargets), x)
-  msg(verbose, " done", appendLF=TRUE)
+  msg(verbose, " done", appendLF = TRUE)
 
   # test each region
-  msg(verbose, "Calculating probabilities...", appendLF=FALSE)
-  x <- test_offtargets(offtargets$target.breaks   , sum(breaks$target$score),
-                       offtargets$nontarget.breaks, sum(breaks$nontarget$score))
+  msg(verbose, "Calculating probabilities...", appendLF = FALSE)
+  x <- test_offtargets(
+    offtargets$target.breaks,
+    sum(breaks$target$score),
+    offtargets$nontarget.breaks,
+    sum(breaks$nontarget$score)
+  )
   mcols(offtargets) <- cbind(mcols(offtargets), x)
-  msg(verbose, " done", appendLF=TRUE)
+  msg(verbose, " done", appendLF = TRUE)
 
   # calculate empirical FDR
-  if(eFDR) {
-    msg(verbose, "Calculating empirical FDR", appendLF=FALSE)
+  if (eFDR) {
+    msg(verbose, "Calculating empirical FDR", appendLF = FALSE)
     null <- breaks$target
-    null$score <- round(rowMeans(rmultinom(10, size=sum(null$score), prob=sample(null$score))))
-    fdr <- breakinspectoR(null, breaks$nontarget, guide, PAM, mismatches,
-                          cutsiteFromPAM, min_breaks, standard_chromosomes,
-                          genome, eFDR=FALSE, verbose=FALSE)
+    null$score <- round(rowMeans(rmultinom(
+      10,
+      size = sum(null$score),
+      prob = sample(null$score)
+    )))
+    fdr <- breakinspectoR(
+      null,
+      breaks$nontarget,
+      guide,
+      PAM,
+      mismatches,
+      cutsiteFromPAM,
+      min_breaks,
+      standard_chromosomes,
+      genome,
+      eFDR = FALSE,
+      verbose = FALSE
+    )
     f <- Vectorize(function(x, mm) {
-      sum(fdr$target.breaks[fdr$mismatches == mm] >= x) / sum(offtargets$target.breaks[offtargets$mismatches == mm] >= x)
+      sum(fdr$target.breaks[fdr$mismatches == mm] >= x) /
+        sum(offtargets$target.breaks[offtargets$mismatches == mm] >= x)
     })
     offtargets$fdr <- f(offtargets$target.breaks, offtargets$mismatches)
     offtargets$fdr[offtargets$fdr > 1] <- 1
-    msg(verbose, " done", appendLF=TRUE)
+    msg(verbose, " done", appendLF = TRUE)
   }
 
   offtargets
@@ -220,26 +300,39 @@ breakinspectoR <- function(target, nontarget=GRanges(), guide, PAM=c("NAG", "NGG
 #' @importFrom stats pbinom
 #' @importFrom qvalue qvalue
 #'
-test_offtargets <- function(target_breaks, target_total,
-                            nontarget_breaks, nontarget_total) {
-
+test_offtargets <- function(
+  target_breaks,
+  target_total,
+  nontarget_breaks,
+  nontarget_total
+) {
   # get enrichment and pvalue
-  x <- do.call(rbind, Map(target_breaks, nontarget_breaks,
-                          f=function(target, nontarget) {
-    p <- pbinom(q   =target + 1,
-                size=target_total + 1,
-                prob=((nontarget + 1) / (nontarget_total + 1)),
-                lower.tail=FALSE)
-    data.frame(enrichment=((target+1) / (target_total+1)) / ((nontarget+1) / (nontarget_total+1)),
-               pval=p)
-  }))
+  x <- do.call(
+    rbind,
+    Map(target_breaks, nontarget_breaks, f = function(target, nontarget) {
+      p <- pbinom(
+        q = target + 1,
+        size = target_total + 1,
+        prob = ((nontarget + 1) / (nontarget_total + 1)),
+        lower.tail = FALSE
+      )
+      data.frame(
+        enrichment = ((target + 1) / (target_total + 1)) /
+          ((nontarget + 1) / (nontarget_total + 1)),
+        pval = p
+      )
+    })
+  )
 
   # get qvalue
-  x$qval <- tryCatch(qvalue(p=x$pval)$qvalues,
-                     # handle error: could not estimate pi0.
-                     # See https://support.bioconductor.org/p/105623/
-                     error=function(e) tryCatch(qvalue(p=x$pval, lambda=0)$qvalues,
-                                                error=function(e) NA))
+  x$qval <- tryCatch(
+    qvalue(p = x$pval)$qvalues,
+    # handle error: could not estimate pi0.
+    # See https://support.bioconductor.org/p/105623/
+    error = function(e) {
+      tryCatch(qvalue(p = x$pval, lambda = 0)$qvalues, error = function(e) NA)
+    }
+  )
 
   x
 }
@@ -276,7 +369,7 @@ test_offtargets <- function(target_breaks, target_total,
 #' 3' (-) GGNCTC|CGCCCCACCTCCCCCAG  <- antisense (match)
 #'        543210|                   <- distance from cutsite coord
 #'        pam<------ guide ------>
-#' 
+#'
 #'    which reversed would look like:
 #'        <------ guide ------>pam
 #'                         |*      <- `*`: break coord; `|`: actual cutsite
@@ -293,48 +386,70 @@ test_offtargets <- function(target_breaks, target_total,
 #' @import GenomicRanges
 #' @import IRanges
 get_guide_and_pam <- function(x, cutsiteFromPAM, glen, pamlen, genome) {
-
   # actual cutsite sits always to the left of the actual cutsite, regardless of
   # the strand. We always operate on the sense strand. See details
   cutsiteFromPAM_sense <- cutsiteFromPAM
-  cutsiteFromPAM_as    <- cutsiteFromPAM - 1
+  cutsiteFromPAM_as <- cutsiteFromPAM - 1
 
   # getSeq, catching the error if coordinates were wrong
   getseq_robust <- function(genome, seqnames, start, end, strand, ...) {
-      tryCatch({
-        getSeq(genome, GRanges(paste0(seqnames, ":", start, "-", end, ":", strand), ...))
-      }, error=function(e) NULL)
-    }
+    tryCatch(
+      {
+        getSeq(
+          genome,
+          GRanges(paste0(seqnames, ":", start, "-", end, ":", strand), ...)
+        )
+      },
+      error = function(e) NULL
+    )
+  }
 
   list(
     # get sense sequence. PAM is on the right of the cutsite
-    sense_guide=getseq_robust(genome,
-                              seqnames(x),
-                              start =end(x) + cutsiteFromPAM_sense - glen + 1,
-                              end   =end(x) + cutsiteFromPAM_sense,
-                              strand="+"),
-    sense_pam  =getseq_robust(genome,
-                              seqnames(x),
-                              start =end(x) + cutsiteFromPAM_sense + 1,
-                              end   =end(x) + cutsiteFromPAM_sense + pamlen,
-                              strand="+"),
-    sense_loci =IRanges(start=end(x) + cutsiteFromPAM_sense - glen + 1, # coordinates of the guide
-                        end  =end(x) + cutsiteFromPAM_sense),
+    sense_guide = getseq_robust(
+      genome,
+      seqnames(x),
+      start = end(x) + cutsiteFromPAM_sense - glen + 1,
+      end = end(x) + cutsiteFromPAM_sense,
+      strand = "+"
+    ),
+    sense_pam = getseq_robust(
+      genome,
+      seqnames(x),
+      start = end(x) + cutsiteFromPAM_sense + 1,
+      end = end(x) + cutsiteFromPAM_sense + pamlen,
+      strand = "+"
+    ),
+    sense_loci = IRanges(
+      start = end(x) + cutsiteFromPAM_sense - glen + 1, # coordinates of the guide
+      end = end(x) + cutsiteFromPAM_sense
+    ),
     # get antisense sequence. PAM is on the left of the cutsite
-    as_guide   =reverseComplement(   # reverse complement the sequence from the "+" strand
-                  getseq_robust(genome,
-                                seqnames(x),
-                                start =end(x) - cutsiteFromPAM_as,
-                                end   =end(x) - cutsiteFromPAM_as + glen - 1,
-                                strand="+")),
-    as_pam     =reverseComplement(   # reverse complement the sequence from the "+" strand
-                  getseq_robust(genome,
-                                seqnames(x),
-                                start =end(x) - cutsiteFromPAM_as - pamlen,
-                                end   =end(x) - cutsiteFromPAM_as - 1,
-                                strand="+")),
-    as_loci    =IRanges(start=end(x) - cutsiteFromPAM_as,
-                        end  =end(x) - cutsiteFromPAM_as + glen - 1))
+    as_guide = reverseComplement(
+      # reverse complement the sequence from the "+" strand
+      getseq_robust(
+        genome,
+        seqnames(x),
+        start = end(x) - cutsiteFromPAM_as,
+        end = end(x) - cutsiteFromPAM_as + glen - 1,
+        strand = "+"
+      )
+    ),
+    as_pam = reverseComplement(
+      # reverse complement the sequence from the "+" strand
+      getseq_robust(
+        genome,
+        seqnames(x),
+        start = end(x) - cutsiteFromPAM_as - pamlen,
+        end = end(x) - cutsiteFromPAM_as - 1,
+        strand = "+"
+      )
+    ),
+    as_loci = IRanges(
+      start = end(x) - cutsiteFromPAM_as,
+      end = end(x) - cutsiteFromPAM_as + glen - 1
+    )
+  )
 }
 
 #' read_targets
@@ -365,46 +480,63 @@ get_guide_and_pam <- function(x, cutsiteFromPAM, glen, pamlen, genome) {
 #'                        strandless=FALSE)
 read_targets <- function(x, genome, standard_chromosomes, strandless) {
   # load genome if needed
-  if(!is(genome, "BSgenome")) {
-    if(requireNamespace(genome, quietly=TRUE)) {
-      genome <- eval(parse(text=paste0(genome, "::", genome)))
+  if (!is(genome, "BSgenome")) {
+    if (requireNamespace(genome, quietly = TRUE)) {
+      genome <- eval(parse(text = paste0(genome, "::", genome)))
     }
   }
 
   # read the bed file if it is not a GRanges object
-  if(!is(x, "GRanges")) {
-    x <- tryCatch({
-      rtracklayer::import.bed(x, genome=seqinfo(genome))
-    }, error=function(e) {
-      if(e$message == "'seqnames' contains sequence names with no entries in 'seqinfo'") {
-        message(e)
-        message("\nTrying to proceed after dropping unknown chromosomes")
-        x <- rtracklayer::import.bed(x)
-        keepSeqlevels(x, intersect(seqlevels(genome), seqlevels(x)), pruning.mode="coarse")
-      } else {
-        stop(e)
+  if (!is(x, "GRanges")) {
+    x <- tryCatch(
+      {
+        rtracklayer::import.bed(x, genome = seqinfo(genome))
+      },
+      error = function(e) {
+        if (
+          e$message ==
+            "'seqnames' contains sequence names with no entries in 'seqinfo'"
+        ) {
+          message(e)
+          message("\nTrying to proceed after dropping unknown chromosomes")
+          x <- rtracklayer::import.bed(x)
+          keepSeqlevels(
+            x,
+            intersect(seqlevels(genome), seqlevels(x)),
+            pruning.mode = "coarse"
+          )
+        } else {
+          stop(e)
+        }
       }
-    })
+    )
   }
 
   # remove non-standard chromosomes if needed
-  if(standard_chromosomes) {
-    x <- keepStandardChromosomes(x, pruning.mode="coarse")
+  if (standard_chromosomes) {
+    x <- keepStandardChromosomes(x, pruning.mode = "coarse")
   }
 
   # add a column with the score if this doesn't exits. The score is the number
   # breaks at that locus (assume 1 if not present)
-  if(! "score" %in% colnames(mcols(x))) {
+  if (!"score" %in% colnames(mcols(x))) {
     mcols(x)$score <- 1
   }
 
   # collapse reads from multiple strands
-  if(strandless & !all(strand(x) == "*")) {
-    xx <- GenomicRanges::reduce(BiocGenerics::unstrand(x), with.revmap=TRUE, min.gapwidth=0L)
-    l  <- sapply(xx$revmap, length)
-    if(any(l > 1)) {   # this code below is slow, do only if needed (l>1)
-      revmap <- data.frame(x.row =unlist(xx$revmap),
-                           xx.row=rep(1:length(xx), l))
+  if (strandless & !all(strand(x) == "*")) {
+    xx <- GenomicRanges::reduce(
+      BiocGenerics::unstrand(x),
+      with.revmap = TRUE,
+      min.gapwidth = 0L
+    )
+    l <- sapply(xx$revmap, length)
+    if (any(l > 1)) {
+      # this code below is slow, do only if needed (l>1)
+      revmap <- data.frame(
+        x.row = unlist(xx$revmap),
+        xx.row = rep(1:length(xx), l)
+      )
       revmap$x.score <- x$score[revmap$x.row]
       xx$score <- as.numeric(tapply(revmap$x.score, revmap$xx.row, sum))
       x <- xx[, -1] # remove the revmap column
@@ -455,60 +587,99 @@ read_targets <- function(x, genome, standard_chromosomes, strandless) {
 #'
 #' offtargets_filtered <- reduceOT(offtargets)
 #'
-reduceOT <- function(x, fdr=.01, qval=.01, mismatches=7, standard_chromosomes=TRUE,
-                   cores=getOption("mc.cores", 2L),
-                   verbose=TRUE) {
-
+reduceOT <- function(
+  x,
+  fdr = .01,
+  qval = .01,
+  mismatches = 7,
+  standard_chromosomes = TRUE,
+  cores = getOption("mc.cores", 2L),
+  verbose = TRUE
+) {
   # significant FDR and q-value
-  msg(verbose, paste0("Keeping significant hits only (FDR<", fdr, " & qval<", qval, ")..."), appenLF=FALSE)
+  msg(
+    verbose,
+    paste0(
+      "Keeping significant hits only (FDR<",
+      fdr,
+      " & qval<",
+      qval,
+      ")..."
+    ),
+    appenLF = FALSE
+  )
   x <- x[x$qval < qval]
-  if("fdr" %in% colnames(mcols(x))) {   # only if empirical FDR was calculated
-    x <- x[x$fdr  < fdr]
+  if ("fdr" %in% colnames(mcols(x))) {
+    # only if empirical FDR was calculated
+    x <- x[x$fdr < fdr]
   }
-  msg(verbose, " done", appendLF=TRUE)
+  msg(verbose, " done", appendLF = TRUE)
 
   # remove NNN* protospacers
-  msg(verbose, "Removing remove NNN* protospacers...", appendLF=FALSE)
+  msg(verbose, "Removing remove NNN* protospacers...", appendLF = FALSE)
   calcMM <- Vectorize(function(x, y) Biostrings::neditAt(x, y))
-  x <- 
-    tryCatch({
-      x$mismatches <- calcMM(x$guide, guide)
-       x[x$mismatches <= mismatches]
-    }, error=function(e) x)
-  msg(verbose, " done", appendLF=TRUE)
+  x <-
+    tryCatch(
+      {
+        x$mismatches <- calcMM(x$guide, guide)
+        x[x$mismatches <= mismatches]
+      },
+      error = function(e) x
+    )
+  msg(verbose, " done", appendLF = TRUE)
 
   # merge different OT in same protospacer
-  msg(verbose, "Merging different OT in same protospacer...", appendLF=FALSE)
-  x <- 
-    tryCatch({
-      coord <- paste(seqnames(x), start(x), end(x), x$sense) 
-      x <- do.call(rbind, mclapply(split(x, coord), function(x) {
-        i <- which.max(x$target.cutsite_breaks) # most often cutsite
-        x[i]
-      }, mc.cores=cores))
-    }, error=function(e) x)
-  msg(verbose, " done", appendLF=TRUE)
+  msg(verbose, "Merging different OT in same protospacer...", appendLF = FALSE)
+  x <-
+    tryCatch(
+      {
+        coord <- paste(seqnames(x), start(x), end(x), x$sense)
+        x <- do.call(
+          rbind,
+          mclapply(
+            split(x, coord),
+            function(x) {
+              i <- which.max(x$target.cutsite_breaks) # most often cutsite
+              x[i]
+            },
+            mc.cores = cores
+          )
+        )
+      },
+      error = function(e) x
+    )
+  msg(verbose, " done", appendLF = TRUE)
 
   # merge same OT in different protospacers: after merging OT in same protospacer,
   # will happen that for 2 different partially overlapping protospacers, the same
   # cutsite is identified as the most common cut site. Merge those protospacers into
   # 1 single entry
-  msg(verbose, "Merging same OT in different protospacers...", appendLF=FALSE)
+  msg(verbose, "Merging same OT in different protospacers...", appendLF = FALSE)
   x <-
-    tryCatch({
-      coord <- paste(seqnames(x), x$cutsite, x$sense) 
-      x <- do.call(rbind, mclapply(split(x, coord), function(x) {
-        i <- which.min(x$mismatches) # most fidel sequence to the sgRNA
-        x[i]
-      }, mc.cores=cores))
-    }, error=function(e) x)
-  msg(verbose, " done", appendLF=TRUE)
+    tryCatch(
+      {
+        coord <- paste(seqnames(x), x$cutsite, x$sense)
+        x <- do.call(
+          rbind,
+          mclapply(
+            split(x, coord),
+            function(x) {
+              i <- which.min(x$mismatches) # most fidel sequence to the sgRNA
+              x[i]
+            },
+            mc.cores = cores
+          )
+        )
+      },
+      error = function(e) x
+    )
+  msg(verbose, " done", appendLF = TRUE)
 
   # remove non-standard chromosomes if needed
-  if(standard_chromosomes) {
-    msg(verbose, "Keeping standard chromosomes only...", appendLF=FALSE)
-    x <- keepStandardChromosomes(x, pruning.mode="coarse")
-    msg(verbose, " done", appendLF=TRUE)
+  if (standard_chromosomes) {
+    msg(verbose, "Keeping standard chromosomes only...", appendLF = FALSE)
+    x <- keepStandardChromosomes(x, pruning.mode = "coarse")
+    msg(verbose, " done", appendLF = TRUE)
   }
 
   x
@@ -548,7 +719,7 @@ reduceOT <- function(x, fdr=.01, qval=.01, mismatches=7, standard_chromosomes=TR
 #' Then, a binomial test similar to the one done in the `breakinspectoR()`
 #' function is performed to test for a significant enrichment of breaks around
 #' the cutsite in the target compared to the non-target libraries.
-#' 
+#'
 #' @import BSgenome
 #' @import rtracklayer
 #' @importFrom S4Vectors mcols decode
@@ -581,83 +752,114 @@ reduceOT <- function(x, fdr=.01, qval=.01, mismatches=7, standard_chromosomes=TR
 #'
 #'   mcols(offtargets) <- cbind(mcols(offtargets), mcols(offtargets.scission_profile))
 #' }
-scission_profile_analysis <- function(x,
-                                      target,
-                                      nontarget=GRanges(),
-                                      region=3,
-                                      standard_chromosomes=TRUE,
-                                      bsgenome="BSgenome.Hsapiens.UCSC.hg38",
-                                      qval_cutoff=0.01,
-                                      cores=getOption("mc.cores", 2L),
-                                      verbose=TRUE) {
-
+scission_profile_analysis <- function(
+  x,
+  target,
+  nontarget = GRanges(),
+  region = 3,
+  standard_chromosomes = TRUE,
+  bsgenome = "BSgenome.Hsapiens.UCSC.hg38",
+  qval_cutoff = 0.01,
+  cores = getOption("mc.cores", 2L),
+  verbose = TRUE
+) {
   # load the reference genome. Will be used almost everywhere...
-  msg(verbose, "Loading ", bsgenome, "...", appendLF=FALSE)
-  if(!is(bsgenome, "BSgenome")) {
-    if (requireNamespace(bsgenome, quietly=TRUE)) {
-      genome <- eval(parse(text=paste0(bsgenome, "::", bsgenome)))
+  msg(verbose, "Loading ", bsgenome, "...", appendLF = FALSE)
+  if (!is(bsgenome, "BSgenome")) {
+    if (requireNamespace(bsgenome, quietly = TRUE)) {
+      genome <- eval(parse(text = paste0(bsgenome, "::", bsgenome)))
     }
   } else {
     genome <- bsgenome
   }
-  msg(verbose, " done", appendLF=TRUE)
+  msg(verbose, " done", appendLF = TRUE)
 
   # read the bed files
-  msg(verbose, "Importing breaks...", appendLF=FALSE)
-  breaks <- mclapply(list(target=target, nontarget=nontarget), read_targets,
-                     genome, standard_chromosomes, strandless=FALSE, mc.cores=cores)
-  breaks$target    <- rep(breaks$target   , breaks$target$score)    # expand "score" into "reads" (individual entries in GRanges)
+  msg(verbose, "Importing breaks...", appendLF = FALSE)
+  breaks <- mclapply(
+    list(target = target, nontarget = nontarget),
+    read_targets,
+    genome,
+    standard_chromosomes,
+    strandless = FALSE,
+    mc.cores = cores
+  )
+  breaks$target <- rep(breaks$target, breaks$target$score) # expand "score" into "reads" (individual entries in GRanges)
   breaks$nontarget <- rep(breaks$nontarget, breaks$nontarget$score)
-  msg(verbose, " done", appendLF=TRUE)
+  msg(verbose, " done", appendLF = TRUE)
 
   # count breaks on and around the target and non-target libraries
-  msg(verbose, "Counting breaks at each offtarget region...", appendLF=FALSE)
-  if(is(x$cutsite, "IRanges")) {
+  msg(verbose, "Counting breaks at each offtarget region...", appendLF = FALSE)
+  if (is(x$cutsite, "IRanges")) {
     x <- GRanges(seqnames(x), x$cutsite, ifelse(x$sense == "sense", "+", "-"))
   } else {
-    x <- GRanges(seqnames(x), IRanges(x$cutsite, width=1), ifelse(x$sense == "sense", "+", "-"))
+    x <- GRanges(
+      seqnames(x),
+      IRanges(x$cutsite, width = 1),
+      ifelse(x$sense == "sense", "+", "-")
+    )
   }
-  x.around           <- x
-  ranges(x.around)   <- IRanges(start(x) - region, start(x) + region)
-  x$on.target        <- countOverlaps(x       , breaks$target)
-  x$around.target    <- countOverlaps(x.around, breaks$target)    - x$on.target
-  x$on.nontarget     <- countOverlaps(x       , breaks$nontarget)
-  x$around.nontarget <- countOverlaps(x.around, breaks$nontarget) - x$on.nontarget
-  msg(verbose, " done", appendLF=TRUE)
+  x.around <- x
+  ranges(x.around) <- IRanges(start(x) - region, start(x) + region)
+  x$on.target <- countOverlaps(x, breaks$target)
+  x$around.target <- countOverlaps(x.around, breaks$target) - x$on.target
+  x$on.nontarget <- countOverlaps(x, breaks$nontarget)
+  x$around.nontarget <- countOverlaps(x.around, breaks$nontarget) -
+    x$on.nontarget
+  msg(verbose, " done", appendLF = TRUE)
 
   # test the enrichment of breaks around the cutsite in the target vs. non-target libs
-  msg(verbose, "Calculating probabilities...", appendLF=FALSE)
+  msg(verbose, "Calculating probabilities...", appendLF = FALSE)
   test <- function(around.target, around.nontarget) {
-    pbinom(q   =around.target + 1,
-           size=length(breaks$target) + 1,
-           prob=((around.nontarget + 1) / (length(breaks$nontarget) + 1)),
-           lower.tail=FALSE)
+    pbinom(
+      q = around.target + 1,
+      size = length(breaks$target) + 1,
+      prob = ((around.nontarget + 1) / (length(breaks$nontarget) + 1)),
+      lower.tail = FALSE
+    )
   }
   vtest <- Vectorize(test)
   x$pval <- vtest(x$around.target, x$around.nontarget)
 
   # get qvalue
-  x$qval <- tryCatch(qvalue(p=x$pval)$qvalues,
-                     # handle error: could not estimate pi0.
-                     # See https://support.bioconductor.org/p/105623/
-                     error=function(e) tryCatch(qvalue(p=x$pval, lambda=0)$qvalues,
-                                                error=function(e) NA))
-  msg(verbose, " done", appendLF=TRUE)
+  x$qval <- tryCatch(
+    qvalue(p = x$pval)$qvalues,
+    # handle error: could not estimate pi0.
+    # See https://support.bioconductor.org/p/105623/
+    error = function(e) {
+      tryCatch(qvalue(p = x$pval, lambda = 0)$qvalues, error = function(e) NA)
+    }
+  )
+  msg(verbose, " done", appendLF = TRUE)
 
   # add column informing whether the break was significantly staggered (or not, ==blunt)
-  x$scission_profile <- ifelse(x$around.target > x$on.target & x$qval < qval_cutoff, "staggered", "blunt")
+  x$scission_profile <- ifelse(
+    x$around.target > x$on.target & x$qval < qval_cutoff,
+    "staggered",
+    "blunt"
+  )
 
   # count breaks at each individual position of the region, and add them as columns
-  target_counts_per_position <- do.call(cbind, lapply(-region:region, function(pos) {
-    x <- GRanges(seqnames(x), IRanges(start=start(x) + pos, end=start(x) + pos), strand=strand(x))
-    countOverlaps(x, breaks$target)
-  }))
-  target_counts_per_position.rev <- t(apply(target_counts_per_position, 1, rev))  # reversed matrix, for the minus strand
+  target_counts_per_position <- do.call(
+    cbind,
+    lapply(-region:region, function(pos) {
+      x <- GRanges(
+        seqnames(x),
+        IRanges(start = start(x) + pos, end = start(x) + pos),
+        strand = strand(x)
+      )
+      countOverlaps(x, breaks$target)
+    })
+  )
+  target_counts_per_position.rev <- t(apply(target_counts_per_position, 1, rev)) # reversed matrix, for the minus strand
   i <- decode(strand(x)) == "-"
   target_counts_per_position[i, ] <- target_counts_per_position.rev[i, ]
-  colnames(target_counts_per_position) <- paste0("cutsite+", as.character(-region:region)) |>
-                                          sub("\\+-", "-", x=_) |>
-                                          sub("\\+0", "" , x=_)
+  colnames(target_counts_per_position) <- paste0(
+    "cutsite+",
+    as.character(-region:region)
+  ) |>
+    sub("\\+-", "-", x = _) |>
+    sub("\\+0", "", x = _)
   x$target_counts_per_position <- target_counts_per_position
 
   x
@@ -673,7 +875,7 @@ scission_profile_analysis <- function(x,
 #'
 #' @return nothing
 msg <- function(verbose, ...) {
-  if(verbose) {
+  if (verbose) {
     message(...)
   }
 }

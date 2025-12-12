@@ -1,0 +1,13 @@
+name: breakinspector
+channels:
+  - conda-forge
+  - bioconda
+  - defaults
+dependencies:
+  - conda-forge::r-base
+  - conda-forge::r-languageserver
+  - conda-forge::r-devtools
+  - conda-forge::compilers
+  - conda-forge::zlib
+  - conda-forge::liblzma-devel
+  - conda-forge::libxml2-devel
