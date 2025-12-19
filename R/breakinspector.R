@@ -94,22 +94,14 @@ breakinspectoR <- function(
 
   # read the bed files
   msg(verbose, "Importing breaks...", appendLF = FALSE)
-
-  breaks <- list()
-  breaks$target <- read_targets(
-    target,
+  breaks <- mclapply(
+    list(target = target, nontarget = nontarget),
+    read_targets,
     genome,
     standard_chromosomes,
-    strandless = TRUE
+    strandless = TRUE,
+    mc.cores = cores
   )
-
-  breaks$nontarget <- read_targets(
-    nontarget,
-    genome,
-    standard_chromosomes,
-    strandless = TRUE
-  )
-
   msg(verbose, " done", appendLF = TRUE)
 
   # scale the non-target library, if requested
@@ -211,22 +203,24 @@ breakinspectoR <- function(
     return(offtargets)
   }
 
+  tbcb <- function(x) {
+    breaks <- t(sapply(coverage(x, weight = x$score)[offtargets], decode))
+    i <- offtargets$sense == "antisense"
+    if (any(i)) {
+      breaks[i, ] <- sapply(breaks[i, ], rev)
+    }
+
+    cutsite <- GRanges(seqnames(offtargets), IRanges(offtargets$cutsite))
+    cutsite_breaks <- sapply(coverage(x, weight = x$score)[cutsite], decode)
+
+    data.frame(breaks = rowSums(breaks), cutsite_breaks = cutsite_breaks)
+  }
+
   # get the number of breaks per position for those regions
   msg(verbose, "Counting breaks at each offtarget region...", appendLF = FALSE)
   x <- do.call(
     cbind,
-    lapply(breaks, function(x) {
-      breaks <- t(sapply(coverage(x, weight = x$score)[offtargets], decode))
-      i <- offtargets$sense == "antisense"
-      if (any(i)) {
-        breaks[i, ] <- sapply(breaks[i, ], rev)
-      }
-
-      cutsite <- GRanges(seqnames(offtargets), IRanges(offtargets$cutsite))
-      cutsite_breaks <- sapply(coverage(x, weight = x$score)[cutsite], decode)
-
-      data.frame(breaks = rowSums(breaks), cutsite_breaks = cutsite_breaks)
-    })
+    lapply(breaks, tbcb)
   )
 
   mcols(offtargets) <- cbind(mcols(offtargets), x)
